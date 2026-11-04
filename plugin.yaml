@@ -1,0 +1,69 @@
+name: orbit-platform
+label: Orbit
+kind: platform
+version: 0.1.0
+description: >
+  Orbit team-chat adapter for Hermes Agent. Signs in to any Orbit instance with a
+  session (email/password or a pre-issued session cookie), watches channels,
+  threads and DMs, and replies as a regular workspace member. Polling is the
+  source of truth; the Orbit live websocket is used as a best-effort low-latency
+  hint when it is available.
+author: simpros
+homepage: https://github.com/simpros/hermes-orbit-gateway
+license: MIT
+# ``requires_env`` / ``optional_env`` entries surface in ``hermes config`` and the
+# gateway setup wizard (hermes_cli/config.py body-var injector).
+requires_env:
+  - name: ORBIT_BASE_URL
+    description: "Base URL of the Orbit instance (e.g. https://orbit.example.com)"
+    prompt: "Orbit base URL"
+    password: false
+  - name: ORBIT_WORKSPACE_ID
+    description: "Workspace id the bot lives in (the UUID from the workspace URL)"
+    prompt: "Orbit workspace id"
+    password: false
+optional_env:
+  - name: ORBIT_EMAIL
+    description: "Email of the Orbit account the bot signs in as (with ORBIT_PASSWORD)"
+    prompt: "Orbit account email"
+    password: false
+  - name: ORBIT_PASSWORD
+    description: "Password of the Orbit account the bot signs in as"
+    prompt: "Orbit account password"
+    password: true
+  - name: ORBIT_SESSION_COOKIE
+    description: "Pre-issued session cookie (name=value) or bare session token, instead of email/password"
+    prompt: "Orbit session cookie"
+    password: true
+  - name: ORBIT_SESSION_COOKIE_NAME
+    description: "Cookie name when ORBIT_SESSION_COOKIE is a bare token (default: __Host-orbit_session, orbit_session_dev on loopback)"
+    prompt: "Orbit session cookie name"
+    password: false
+  - name: ORBIT_HOME_CHANNEL
+    description: "Conversation id for cron / notification delivery (defaults to the first writable channel)"
+    prompt: "Orbit home conversation id"
+    password: false
+  - name: ORBIT_MENTION_NAME
+    description: "Extra name that addresses the bot in channels (default: the account's display name)"
+    prompt: "Bot mention alias"
+    password: false
+  - name: ORBIT_REQUIRE_MENTION
+    description: "Only answer channel messages that mention the bot (true/false, default: true)"
+    prompt: "Require a mention in channels? (true/false)"
+    password: false
+  - name: ORBIT_POLL_INTERVAL
+    description: "Seconds between message polls (default: 3)"
+    prompt: "Poll interval (seconds)"
+    password: false
+  - name: ORBIT_USE_WEBSOCKET
+    description: "Use the live websocket for low latency, polling stays authoritative (true/false, default: true)"
+    prompt: "Use websocket? (true/false)"
+    password: false
+  - name: ORBIT_ALLOWED_USERS
+    description: "Comma-separated Orbit user ids allowed to talk to the bot"
+    prompt: "Allowed user ids (comma-separated)"
+    password: false
+  - name: ORBIT_ALLOW_ALL_USERS
+    description: "Allow every workspace member to talk to the bot (dev only)"
+    prompt: "Allow all users? (true/false)"
+    password: false
