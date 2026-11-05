@@ -51,6 +51,14 @@ optional_env:
     description: "Only answer channel messages that mention the bot (true/false, default: true)"
     prompt: "Require a mention in channels? (true/false)"
     password: false
+  - name: ORBIT_AUTO_THREAD
+    description: "Give each channel mention its own thread and answer inside it (true/false, default: true)"
+    prompt: "Auto-thread channel mentions? (true/false)"
+    password: false
+  - name: ORBIT_NO_THREAD_CHANNELS
+    description: "Comma-separated conversation ids that answer inline instead of opening a thread"
+    prompt: "No-thread conversation ids (comma-separated)"
+    password: false
   - name: ORBIT_POLL_INTERVAL
     description: "Seconds between message polls (default: 3)"
     prompt: "Poll interval (seconds)"

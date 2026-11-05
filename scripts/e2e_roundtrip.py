@@ -169,21 +169,30 @@ async def main() -> int:
     log(f"using channel {conversation_id}")
 
     try:
-        # ── 1. channel mention ──────────────────────────────────────────────
+        # ── 1. channel mention (auto-thread) ────────────────────────────────
         token = uuid.uuid4().hex[:8]
         posted = await peer.send_message(conversation_id, f"<@{adapter._self_id}> channel ping {token}")
         event = await wait_for(
             lambda e: token in e.text, what="channel mention"
         )
         reply = await reply_for(event)
-        check("channel inbound", event.source.chat_type == "group", f"msg {posted['id']}")
+        check(
+            "channel mention opens a thread",
+            event.source.chat_type == "thread",
+            f"msg {posted['id']} type={event.source.chat_type}",
+        )
+        check(
+            "channel thread is rooted at the inbound message",
+            event.source.thread_id == posted["id"],
+            f"thread={event.source.thread_id} root={posted['id']}",
+        )
         check("channel reply", reply["success"], f"msg {reply['message_id']}")
 
-        head = await peer.list_messages(conversation_id, limit=20)
+        page = await peer.get_thread(posted["id"], limit=50)
         check(
-            "channel reply visible",
-            any(m["id"] == reply["message_id"] for m in head),
-            f"{reply['message_id']} present in conversation head",
+            "channel reply lands in the thread",
+            any(m["id"] == reply["message_id"] for m in page.get("items", [])),
+            f"{reply['message_id']} in thread {posted['id']}",
         )
 
         # ── 2. thread round-trip ────────────────────────────────────────────
@@ -192,7 +201,19 @@ async def main() -> int:
             conversation_id, f"<@{adapter._self_id}> thread root {root_token}"
         )
         root_event = await wait_for(lambda e: root_token in e.text, what="thread root")
-        # The bot answer lands in the channel; the peer now opens a thread on the ROOT.
+        root_reply = await reply_for(root_event)
+        check(
+            "channel root answer auto-threaded",
+            root_event.source.thread_id == root["id"],
+            f"thread={root_event.source.thread_id} root={root['id']}",
+        )
+        root_page = await peer.get_thread(root["id"], limit=50)
+        check(
+            "root answer lands in the thread",
+            any(m["id"] == root_reply["message_id"] for m in root_page.get("items", [])),
+            f"{root_reply['message_id']} in thread {root['id']}",
+        )
+        # The peer now opens a thread on the ROOT (the thread the bot already answers in).
         follow = await peer.send_message(
             conversation_id, f"<@{adapter._self_id}> thread follow-up {root_token}",
             thread_root_id=root["id"],
