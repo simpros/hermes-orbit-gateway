@@ -301,7 +301,7 @@ async def test_upload_file_posts_multipart(orbit, tmp_path):
 # ── message mapping ─────────────────────────────────────────────────────────
 
 
-async def test_channel_mention_maps_to_group_chat(adapter):
+async def test_channel_mention_opens_a_thread_rooted_at_the_inbound_message(adapter):
     events = capture(adapter)
     adapter._conversations = {"conv-1": conversation()}
     await adapter._dispatch(message(body="<@bot-user> what is the deploy status?"), conversation())
@@ -309,11 +309,47 @@ async def test_channel_mention_maps_to_group_chat(adapter):
     assert len(events) == 1
     event = events[0]
     assert event.source.chat_id == "conv-1"
-    assert event.source.chat_type == "group"
-    assert event.source.thread_id is None
+    assert event.source.chat_type == "thread"
+    assert event.source.thread_id == "0190-m1"
+    assert event.source.auto_thread_created is True
+    assert event.source.auto_thread_initial_name == "what is the deploy status?"
     assert event.source.user_id == "human-1"
     assert event.source.user_name == "Ada"
     assert event.text == "what is the deploy status?"
+
+
+async def test_no_thread_channel_answers_inline(adapter):
+    adapter.no_thread_channels = {"conv-1"}
+    events = capture(adapter)
+    adapter._conversations = {"conv-1": conversation()}
+    await adapter._dispatch(message(body="<@bot-user> keep it here"), conversation())
+
+    assert len(events) == 1
+    event = events[0]
+    assert event.source.chat_type == "group"
+    assert event.source.thread_id is None
+    assert event.source.auto_thread_created is False
+
+
+async def test_auto_thread_can_be_disabled(adapter):
+    adapter.auto_thread = False
+    events = capture(adapter)
+    adapter._conversations = {"conv-1": conversation()}
+    await adapter._dispatch(message(body="<@bot-user> inline please"), conversation())
+
+    assert len(events) == 1
+    event = events[0]
+    assert event.source.chat_type == "group"
+    assert event.source.thread_id is None
+    assert event.source.auto_thread_created is False
+
+
+async def test_auto_thread_name_caps_the_root_text_at_80_chars(adapter):
+    events = capture(adapter)
+    adapter._conversations = {"conv-1": conversation()}
+    await adapter._dispatch(message(body="<@bot-user> " + "x" * 120), conversation())
+
+    assert len(events[0].source.auto_thread_initial_name) == 80
 
 
 async def test_channel_message_without_mention_is_ignored(adapter):
@@ -346,6 +382,7 @@ async def test_dm_needs_no_mention(adapter):
 
     assert len(events) == 1
     assert events[0].source.chat_type == "dm"
+    assert events[0].source.thread_id is None
     assert events[0].text == "ping"
 
 
@@ -504,10 +541,14 @@ def test_env_enablement_seeds_extra(orbit, monkeypatch):
     monkeypatch.setenv("ORBIT_WORKSPACE_ID", WS)
     monkeypatch.setenv("ORBIT_EMAIL", "bot@example.test")
     monkeypatch.setenv("ORBIT_HOME_CHANNEL", "conv-9")
+    monkeypatch.setenv("ORBIT_AUTO_THREAD", "false")
+    monkeypatch.setenv("ORBIT_NO_THREAD_CHANNELS", "conv-7, conv-8")
     seeded = orbit._env_enablement()
     assert seeded["base_url"] == BASE
     assert seeded["workspace_id"] == WS
     assert seeded["email"] == "bot@example.test"
+    assert seeded["auto_thread"] is False
+    assert seeded["no_thread_channels"] == "conv-7, conv-8"
     assert seeded["home_channel"] == {"chat_id": "conv-9", "name": "Home"}
 
 
@@ -519,11 +560,22 @@ def test_env_enablement_is_none_without_required_vars(orbit, monkeypatch):
 
 def test_yaml_bridge_maps_platform_keys(orbit, monkeypatch):
     monkeypatch.delenv("ORBIT_BASE_URL", raising=False)
+    monkeypatch.delenv("ORBIT_AUTO_THREAD", raising=False)
+    monkeypatch.delenv("ORBIT_NO_THREAD_CHANNELS", raising=False)
     seeded = orbit.apply_yaml_config(
-        {"base_url": BASE, "workspace_id": WS, "use_websocket": False}, {}
+        {
+            "base_url": BASE,
+            "workspace_id": WS,
+            "use_websocket": False,
+            "auto_thread": False,
+            "no_thread_channels": ["conv-7", "conv-8"],
+        },
+        {},
     )
     assert seeded["base_url"] == BASE
     assert seeded["use_websocket"] is False
+    assert seeded["auto_thread"] is False
+    assert seeded["no_thread_channels"] == ["conv-7", "conv-8"]
 
 
 def test_register_wires_the_platform(orbit):

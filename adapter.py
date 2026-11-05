@@ -93,6 +93,15 @@ def _coerce_float(value: Any, default: float, *, minimum: float = 0.5) -> float:
     return parsed if parsed >= minimum else default
 
 
+def _csv_set(value: Any) -> set[str]:
+    """Comma-separated ids from env/YAML (a YAML list is accepted as-is)."""
+    if isinstance(value, (list, tuple, set)):
+        items = [str(item) for item in value]
+    else:
+        items = str(value or "").split(",")
+    return {item.strip() for item in items if item.strip()}
+
+
 def _origin_of(base_url: str) -> str:
     """Scheme://host[:port] of a base URL — Orbit's CSRF policy compares this."""
     parts = urlsplit(base_url)
@@ -507,6 +516,14 @@ class OrbitAdapter(BasePlatformAdapter):
         self.mention_name = str(
             extra_or_secret(extra, "mention_name", "ORBIT_MENTION_NAME", "")
         ).strip()
+        # Discord parity: a channel mention opens its own thread instead of answering inline.
+        self.auto_thread = _truthy(
+            extra_or_secret(extra, "auto_thread", "ORBIT_AUTO_THREAD", None), True
+        )
+        # Conversations that keep answering inline (Discord's ``no_thread_channels``).
+        self.no_thread_channels = _csv_set(
+            extra_or_secret(extra, "no_thread_channels", "ORBIT_NO_THREAD_CHANNELS", "")
+        )
         self.home_channel = str(
             extra_or_secret(extra, "home_channel", "ORBIT_HOME_CHANNEL", "")
         ).strip()
@@ -988,6 +1005,27 @@ class OrbitAdapter(BasePlatformAdapter):
             logger.debug("Orbit: ignoring message %s in %s (not addressed)", message_id, conversation_id)
             return
 
+        # Auto-thread (Discord ``auto_thread`` parity): a channel mention gets its own thread so
+        # the answer never lands in the shared channel.  Orbit threads are replies rooted at a
+        # message (``thread_root_id`` is the root message id) and have NO thread-create or
+        # rename API: the inbound message simply *becomes* the root, the bot replies with
+        # ``thread_root_id=message_id``, and the thread's only name is the root message text
+        # itself.  Discord's semantic pre-seeded thread name with a later semantic rename has no
+        # Orbit equivalent, so no naming is attempted — by design (see README "Limitations").
+        # DMs stay inline, messages already in a thread keep their root, and the
+        # ``require_mention`` gate above ran first, same order as Discord.
+        auto_thread_created = False
+        auto_thread_initial_name: str | None = None
+        if (
+            self.auto_thread
+            and not is_dm
+            and thread_root is None
+            and conversation_id not in self.no_thread_channels
+        ):
+            thread_root = message_id
+            auto_thread_created = True
+            auto_thread_initial_name = self._auto_thread_name(text)
+
         reply_to = message.get("reply_to") or {}
         source = self.build_source(
             chat_id=conversation_id,
@@ -998,6 +1036,8 @@ class OrbitAdapter(BasePlatformAdapter):
             thread_id=thread_root,
             guild_id=self.workspace_id,
             message_id=message_id,
+            auto_thread_created=auto_thread_created,
+            auto_thread_initial_name=auto_thread_initial_name,
         )
         event = MessageEvent(
             text=text,
@@ -1062,6 +1102,18 @@ class OrbitAdapter(BasePlatformAdapter):
     @staticmethod
     def _strip_mention_tokens(text: str) -> str:
         return _MENTION_TOKEN_RE.sub("", text).strip() or text
+
+    @staticmethod
+    def _auto_thread_name(text: str) -> str:
+        """The thread's "name": the mention-stripped root text, first 80 characters.
+
+        Orbit threads have no name field and no rename route — a thread is identified by its
+        root message, and that message's text is the only name a member sees.  Discord renames
+        its auto-thread to the agent session title afterwards; that lane is Discord-only and
+        deliberately not implemented here (there is nothing to call).
+        """
+        cleaned = re.sub(r"\s+", " ", _MENTION_TOKEN_RE.sub("", text or "")).strip()
+        return cleaned[:80] or "Orbit thread"
 
     @staticmethod
     def _strip_alias(text: str, alias: str) -> str | None:
@@ -1195,6 +1247,8 @@ def _env_enablement() -> dict | None:
             ("ORBIT_POLL_INTERVAL", "poll_interval", float),
             ("ORBIT_USE_WEBSOCKET", "use_websocket", lambda v: v.strip().lower() in _TRUTHY),
             ("ORBIT_REQUIRE_MENTION", "require_mention", lambda v: v.strip().lower() in _TRUTHY),
+            ("ORBIT_AUTO_THREAD", "auto_thread", lambda v: v.strip().lower() in _TRUTHY),
+            ("ORBIT_NO_THREAD_CHANNELS", "no_thread_channels", None),
         ),
         home_env="ORBIT_HOME_CHANNEL",
     )
@@ -1213,6 +1267,8 @@ _YAML_SPEC = (
     ("poll_interval", "ORBIT_POLL_INTERVAL", "str"),
     ("use_websocket", "ORBIT_USE_WEBSOCKET", "lower"),
     ("require_mention", "ORBIT_REQUIRE_MENTION", "lower"),
+    ("auto_thread", "ORBIT_AUTO_THREAD", "lower"),
+    ("no_thread_channels", "ORBIT_NO_THREAD_CHANNELS", "csv"),
     ("allowed_users", "ORBIT_ALLOWED_USERS", "csv"),
     ("allow_all_users", "ORBIT_ALLOW_ALL_USERS", "lower"),
 )

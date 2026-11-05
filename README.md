@@ -80,6 +80,8 @@ multiplexed profile only ever sees its own values.
 | `ORBIT_SESSION_COOKIE_NAME` | no | `__Host-orbit_session` (`orbit_session_dev` on loopback) | Cookie name for a bare token |
 | `ORBIT_HOME_CHANNEL` | no | first writable channel | Conversation id for cron / `deliver=orbit` |
 | `ORBIT_REQUIRE_MENTION` | no | `true` | Only answer channel messages that address the bot |
+| `ORBIT_AUTO_THREAD` | no | `true` | Answer each channel mention in its own thread instead of inline |
+| `ORBIT_NO_THREAD_CHANNELS` | no | — | Comma-separated conversation ids that keep answering inline |
 | `ORBIT_MENTION_NAME` | no | display name + its first word | Extra name that addresses the bot (`@hermes`) |
 | `ORBIT_POLL_INTERVAL` | no | `3` | Seconds between polls |
 | `ORBIT_USE_WEBSOCKET` | no | `true` | Use `/live` for low latency |
@@ -97,6 +99,7 @@ gateway:
         base_url: https://orbit.example.com
         workspace_id: 01a1a7d4-514c-72b1-a95e-2036e82cb14e
         require_mention: true
+        auto_thread: true
         poll_interval: 3
         use_websocket: true
         # credentials: prefer .env
@@ -107,6 +110,10 @@ gateway:
 - **Channels / private channels** — answered when the message mentions the bot (`<@user_id>` in
   the body, `@hermes`, or a reply to one of the bot's messages). Set
   `ORBIT_REQUIRE_MENTION=false` to answer everything in channels.
+- **Auto-thread (default on)** — a channel mention does not dump its answer into the channel:
+  the incoming message becomes the thread root, the bot replies with `thread_root_id` set to it,
+  and the thread's follow-ups stay there. Add a conversation id to `ORBIT_NO_THREAD_CHANNELS`
+  (or set `ORBIT_AUTO_THREAD=false`) to answer inline instead.
 - **Threads** — a thread reply is dispatched with the thread as its session and answered *into the
   thread*; once the bot has replied in a thread it answers follow-ups there without a mention.
 - **DMs** — always answered; a DM conversation id is just another `chat_id`.
@@ -135,6 +142,9 @@ gateway:
 ## Limitations
 
 - Chat is session-auth only; there is no bot token or webhook to subscribe to.
+- Orbit threads have no name field and no thread-rename route: an auto-thread is identified by
+  its root message, and that message's text is the only name shown. Discord's semantic thread
+  rename has no Orbit equivalent, so none is attempted.
 - Thread replies in threads the bot neither follows nor was mentioned in are discovered by a
   periodic head scan (every ~30 s), not instantly.
 - No reaction, edit or delete surface yet — text, threads, DMs and file uploads only.
